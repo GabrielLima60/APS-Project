@@ -5,6 +5,10 @@
 import warnings
 import time
 import sys
+import psutil
+import time
+import os
+import threading
 import tracemalloc
 import pandas as pd
 import numpy as np
@@ -146,6 +150,22 @@ class PerformAnalysis:
         self.y_pred = classifier.predict(self.x_test)
         return f1_score(self.y_test, self.y_pred, average='weighted')
 
+class MemoryMonitor:
+    def __init__(self, pid, interval=1):
+        self.process = psutil.Process(pid)
+        self.interval = interval
+        self.max_memory_rss = 0  
+
+    def __call__(self):
+        while True:
+            memory_info = self.process.memory_info()
+            rss_mb = memory_info.rss / (1024 * 1024)  # Convert to MB
+            
+            if rss_mb > self.max_memory_rss:
+                self.max_memory_rss = rss_mb
+                
+            time.sleep(self.interval)
+
 
 # MAIN
 
@@ -154,6 +174,13 @@ given_dataset = pd.read_csv(given_dataset)
 given_technique = sys.argv[2]
 given_model = sys.argv[3]
 
+# Getting the memory usage
+current_pid = os.getpid()
+memory_monitor = MemoryMonitor(current_pid)
+
+monitor_thread = threading.Thread(target=memory_monitor)
+monitor_thread.daemon = True
+monitor_thread.start()
 
 # We use tracemalloc snapshots to get the memory used immediately before the execution and after it.
 tracemalloc.start()
@@ -174,10 +201,10 @@ memory_usage = sum(stat.size for stat in diff_snapshot)/1024
 
 processing_time = end_time - start_time
 
-RESULT = str(given_technique) + "," + \
+result = str(given_technique) + "," + \
          str(given_model) + "," + \
          str(a.f1_score) + "," + \
          str(processing_time) + "," + \
-         str(memory_usage)
+         str(memory_monitor.max_memory_rss)
 
-print(RESULT)
+print(result)
